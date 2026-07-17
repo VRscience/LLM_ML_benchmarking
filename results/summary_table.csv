@@ -1,0 +1,4 @@
+target,best_ML,medAPE_ML,medAPE_theo,MAPE_ML,MAPE_theo,improvement_x
+ttft_avg_ms,RF-B,39.6,55.4,78.1,75.3,1.4
+itl_avg_ms,GBM-B,29.2,51.3,53.4,60.0,1.8
+power_w,RF-A,0.9,167.8,1.2,186.5,191.7
