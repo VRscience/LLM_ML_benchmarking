@@ -844,6 +844,8 @@ I due dataset:
         "s6_intro": "## 6. Sintesi per la tesi\n\nImpacchettiamo i risultati: una **tabella riassuntiva** 'da paper' (ML vs teorico per target), l'**esportazione delle figure chiave** in `results/figures/` (PNG ad alta risoluzione, pronte da inserire in tesi/white paper), e una nota su **limiti e lavoro futuro**.",
         "s6_energy": "### 6.0 Energia per token (kWh/Mtok)\n\nConvertiamo le misure di potenza in **energia per token**: `E = power_w / throughput_aggregato` (J/token), riportata come **kWh per 1M token** di output (numericamente identica a Wh per 1k token). Due note metodologiche: (1) la formula per-richiesta `power x latenza / token` conterebbe la potenza di sistema una volta per ogni richiesta in volo -> sovrastima di ~C a concurrency C; si usa il throughput aggregato. (2) per la stima a targa usiamo `TDP x n_gpu` diviso per lo **stesso** throughput misurato: cosi il confronto isola l'errore sulla potenza, senza mescolarlo con quello sul throughput. Messaggi attesi: l'energia per token **cala di ~20x con la concurrency** (il batching ammortizza una potenza quasi costante) e la stima a targa **sovrastima di ~2.6x** (mediana).",
         "s6_limits": "### 6.1 Limiti e lavoro futuro\n\n**Limiti (da dichiarare in tesi):**\n- **N piccolo**: 143 configurazioni appaiate, 6 modelli. Il leave-one-model-out e severo e le stime hanno varianza non trascurabile -> risultati *indicativi*, non definitivi.\n- **Baseline calibrata in-sample**: i 4 parametri del roofline sono fittati su questo stesso dataset, mentre l'ML e out-of-fold -> il confronto e conservativo per l'ML, ma gli errori \"teorici\" dello Step 4 non misurano la generalizzazione del tool a hardware/workload nuovi.\n- **Input/output fissi** (512->128): nessuna generalizzazione su lunghezze di sequenza diverse; il carico varia solo tramite la concurrency.\n- **Collinearita GPU/interconnessione**: nei dati H100 e sempre PCIe e H200 sempre NVLink, quindi l'effetto dell'architettura e dell'interconnessione non e separabile (le spec GPU variano, ma in blocco con l'identita della GPU).\n- **Un solo MoE** (gpt-oss): la generalizzazione ai MoE non e davvero testabile. Con le spec della model card (116.8B totali / 5.1B attivi, arXiv:2508.10925) il roofline lo sottostima ~5x -> e **escluso dal fit di calibrazione** (fuori dominio): il costo effettivo di serving di un MoE sparso e molto sopra i parametri attivi nominali (kernel grouped-GEMM, traffico pesi per-batch; il vecchio valore euristico di 27.09B attivi era di fatto un buon 'costo effettivo'). Resta il fold piu debole per l'ML sui target di latenza. Inoltre gpt-oss reale gira quantizzato (MXFP4) mentre il tool lo modella FP16.\n- **Baseline teorica** = il modello roofline calibrato del tool; le conclusioni sono legate a quella implementazione. `power_w` reale e una misura puntuale (sensibile a temperatura/throttling).\n\n**Lavoro futuro:**\n- Piu benchmark reali (altre GPU, piu MoE, interconnessioni miste) per ampliare N e rompere le collinearita.\n- Variare le lunghezze input/output per testare la generalizzazione.\n- Termine di contention del decode nel modello fisico (il fit esteso indica che la lettura KV del batch pesa ~4x il termine teorico puro).\n- Calibrazione per-fold (rifittare i 4 parametri dentro ogni fold LOMO) per un confronto fisico-vs-ML del tutto simmetrico.\n- Stima dell'incertezza sulle predizioni (intervalli di confidenza).",
+        "s7_tp_intro": "## 7 · Errore vs numero di GPU (TP) a concurrency fissa\n\nDomanda: *dove* si concentra l'errore del modello fisico al crescere del parallelismo, e il correttivo ML lo assorbe? A concurrency fissa (C=1, il regime più pulito: niente coda) confrontiamo il medAPE della predizione teorica e di quella ML (miglior stimatore per target, predizioni out-of-fold LOMO) per livello di tensor parallelism. Nota chiave: a TP=1 non c'è comunicazione inter-GPU (η=1), quindi l'errore residuo lì misura la pura qualità di MFU/MBU; da TP≥2 entra in gioco il termine η.",
+        "s7_tp_end": "### Lettura\n\n- **TTFT**: a TP=1 il roofline è quasi esatto (medAPE ~8%) e l'ML *non* lo migliora (~16%): dove la fisica basta, il correttivo non ha nulla da correggere. Da TP≥2 l'errore fisico sale (~40–60%) e il vantaggio ML cresce con il parallelismo, fino a ~3× a TP=8 (22% vs 62%).\n- **ITL**: il roofline ha il suo regime peggiore a TP=2 (medAPE ~160%); l'ML lo tiene ≤34% a ogni livello di TP.\n- **Potenza**: l'errore della targa TDP×n **cresce monotonicamente con il TP** (11% → 331% da 1 a 8 GPU): è la firma della sub-linearità della potenza, che la targa ignora per costruzione. L'ML resta ≤2% ovunque.\n- Robustezza: alle altre concurrency il pattern si conserva — il vantaggio ML si concentra ai TP alti.\n\n**Messaggio**: l'errore del modello fisico non è distribuito uniformemente — si accumula dove entrano la comunicazione multi-GPU e la sub-linearità della potenza. Il correttivo ML impara esattamente questi regimi ed è lì che serve; a TP=1 la fisica calibrata è già sufficiente.",
         "next": "---\n\n**Notebook completo.** Panoramica dati, confronto reale-vs-teorico, e pipeline ML (feature fisiche, LOMO, modelli A/B) con artefatti e figure pronti per la stesura della tesi in `results/`.",
     },
     "EN": {
@@ -887,9 +889,60 @@ The two datasets:
         "s6_intro": "## 6. Thesis synthesis\n\nWe package the results: a **paper-ready summary table** (ML vs theoretical per target), the **export of the key figures** to `results/figures/` (high-resolution PNG, ready to drop into the thesis/white paper), and a note on **limitations and future work**.",
         "s6_energy": "### 6.0 Energy per token (kWh/Mtok)\n\nWe convert the power measurements into **energy per token**: `E = power_w / aggregate_throughput` (J/token), reported as **kWh per 1M output tokens** (numerically identical to Wh per 1k tokens). Two methodological notes: (1) the per-request formula `power x latency / tokens` would count the system power once per in-flight request -> overestimates by ~C at concurrency C; we use the aggregate throughput. (2) for the nameplate estimate we divide `TDP x n_gpu` by the **same** measured throughput, so the comparison isolates the power error without mixing in the throughput error. Expected messages: energy per token **drops ~20x with concurrency** (batching amortizes a nearly constant power draw) and the nameplate estimate **overestimates by ~2.6x** (median).",
         "s6_limits": "### 6.1 Limitations and future work\n\n**Limitations (to state in the thesis):**\n- **Small N**: 143 paired configurations, 6 models. Leave-one-model-out is harsh and the estimates carry non-negligible variance -> results are *indicative*, not definitive.\n- **In-sample-calibrated baseline**: the roofline's 4 parameters are fitted on this very dataset, while ML is out-of-fold -> the comparison is conservative for ML, but the Step 4 \"theoretical\" errors do not measure the tool's generalization to new hardware/workloads.\n- **Fixed input/output** (512->128): no generalization across sequence lengths; the load varies only through concurrency.\n- **GPU/interconnect collinearity**: in the data H100 is always PCIe and H200 always NVLink, so the architecture and interconnect effects cannot be separated (the GPU specs vary, but in lock-step with the GPU identity).\n- **A single MoE** (gpt-oss): MoE generalization is not really testable. With the model-card specs (116.8B total / 5.1B active, arXiv:2508.10925) the roofline underestimates it ~5x -> it is **excluded from the calibration fit** (out of domain): the effective serving cost of a sparse MoE sits far above its nominal active params (grouped-GEMM kernels, per-batch expert weight traffic; the old heuristic value of 27.09B active was in effect a good 'effective cost'). It remains the weakest fold for ML on the latency targets. Moreover, the real gpt-oss runs quantized (MXFP4) while the tool models it as FP16.\n- **Theoretical baseline** = the tool's calibrated roofline model; conclusions are tied to that implementation. Real `power_w` is a point measurement (sensitive to temperature/throttling).\n\n**Future work:**\n- More real benchmarks (other GPUs, more MoE, mixed interconnects) to enlarge N and break the collinearities.\n- Vary input/output lengths to test generalization.\n- A decode-contention term in the physical model (the extended fit indicates the batch KV read weighs ~4x the pure theoretical term).\n- Per-fold calibration (refit the 4 parameters inside each LOMO fold) for a fully symmetric physics-vs-ML comparison.\n- Uncertainty estimation on the predictions (confidence intervals).",
+        "s7_tp_intro": "## 7 · Error vs GPU count (TP) at fixed concurrency\n\nQuestion: *where* does the physical model's error concentrate as parallelism grows, and does the ML corrector absorb it? At fixed concurrency (C=1, the cleanest regime: no queueing) we compare the medAPE of the theoretical and the ML prediction (best estimator per target, out-of-fold LOMO predictions) per tensor-parallelism level. Key note: at TP=1 there is no inter-GPU communication (η=1), so the residual error there measures pure MFU/MBU quality; from TP≥2 the η term kicks in.",
+        "s7_tp_end": "### Reading\n\n- **TTFT**: at TP=1 the roofline is nearly exact (medAPE ~8%) and ML does *not* improve it (~16%): where the physics suffices, the corrector has nothing to correct. From TP≥2 the physical error rises (~40–60%) and the ML advantage grows with parallelism, up to ~3× at TP=8 (22% vs 62%).\n- **ITL**: the roofline has its worst regime at TP=2 (medAPE ~160%); ML keeps it ≤34% at every TP level.\n- **Power**: the TDP×n nameplate error **grows monotonically with TP** (11% → 331% from 1 to 8 GPUs): the signature of power sub-linearity, which the nameplate ignores by construction. ML stays ≤2% everywhere.\n- Robustness: at the other concurrency levels the pattern holds — the ML advantage concentrates at high TP.\n\n**Message**: the physical model's error is not uniformly distributed — it accumulates where multi-GPU communication and power sub-linearity enter. The ML corrector learns exactly these regimes, and that is where it is needed; at TP=1 the calibrated physics is already sufficient.",
         "next": "---\n\n**Notebook complete.** Data overview, real-vs-theoretical comparison, and ML pipeline (physical features, LOMO, A/B models) with artifacts and figures ready for thesis writing in `results/`.",
     },
 }
+
+
+CODE_ERR_TP = r'''# Section 7 - Error vs GPU count (TP) at fixed concurrency.
+# Where does the physical model's error concentrate as parallelism grows,
+# and does the ML corrector absorb it? Per-config LOMO predictions,
+# best estimator per target (Step 5.3). TP=1 has no inter-GPU communication
+# (eta=1): the residual error there measures pure MFU/MBU quality.
+try:
+    ep = comp.copy()                     # in-memory from Step 5.3
+except NameError:
+    ep = pd.read_csv("results/lomo_predictions_all_estimators.csv")
+
+BEST_TP = {"ttft_avg_ms": ("RF", "B"), "itl_avg_ms": ("GBM", "B"), "power_w": ("RF", "A")}
+C_FIX = 1
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+rows = []
+for ax, (tgt, (est, fr)) in zip(axes, BEST_TP.items()):
+    sub = ep[(ep.target == tgt) & (ep.estimator == est) & (ep.framing == fr)
+             & (ep.concurrent_users == C_FIX)]
+    g = sub.groupby("n_gpu").agg(n=("ape_theo", "size"),
+                                 theo=("ape_theo", "median"),
+                                 ml=("ape_pred", "median"))
+    x = g.index.astype(str)
+    lbl = "TDP nameplate" if tgt == "power_w" else "calibrated roofline"
+    ax.plot(x, g.theo, "o--", color="#C44E52", label=lbl)
+    ax.plot(x, g.ml, "o-", color="#55A868", label=f"ML corrector ({est}-{fr})")
+    ax.set(title=tgt.replace("_avg_ms", "").upper().replace("POWER_W", "power (W)"),
+           xlabel="n GPU (= TP)", ylabel="medAPE %")
+    ax.grid(alpha=0.3); ax.legend(fontsize=8)
+    for tp, r in g.iterrows():
+        rows.append({"target": tgt, "n_gpu": int(tp), "n_config": int(r.n),
+                     "medAPE_theo": round(r.theo, 1), "medAPE_ml": round(r.ml, 1)})
+fig.suptitle(f"Prediction error vs GPU count at fixed concurrency (C={C_FIX}): physics vs ML corrector", y=1.03)
+fig.tight_layout()
+fig.savefig("results/figures/error_vs_tp.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+err_tp = pd.DataFrame(rows)
+err_tp.to_csv("results/error_vs_tp.csv", index=False)
+print(err_tp.to_string(index=False))
+
+# Robustness: same view at the other concurrency levels (TTFT, best = RF-B)
+for c in [10, 50, 100]:
+    s = ep[(ep.target == "ttft_avg_ms") & (ep.estimator == "RF") & (ep.framing == "B")
+           & (ep.concurrent_users == c)]
+    piv = s.groupby("n_gpu")[["ape_theo", "ape_pred"]].median().round(0).astype(int)
+    print(f"TTFT @ C={c}: " + " | ".join(f"TP{k}: roofline {v.ape_theo}% vs ML {v.ape_pred}%"
+                                          for k, v in piv.iterrows()))'''
 
 
 def build(lang):
@@ -970,6 +1023,9 @@ def build(lang):
         nbf.v4.new_markdown_cell(t["s6_energy"]),
         nbf.v4.new_code_cell(CODE_ENERGY),
         nbf.v4.new_markdown_cell(t["s6_limits"]),
+        nbf.v4.new_markdown_cell(t["s7_tp_intro"]),
+        nbf.v4.new_code_cell(CODE_ERR_TP),
+        nbf.v4.new_markdown_cell(t["s7_tp_end"]),
         nbf.v4.new_markdown_cell(t["next"]),
     ]
     nb.metadata = {

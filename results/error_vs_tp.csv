@@ -1,0 +1,13 @@
+target,n_gpu,n_config,medAPE_theo,medAPE_ml
+ttft_avg_ms,1,8,8.5,16.2
+ttft_avg_ms,2,10,59.8,52.9
+ttft_avg_ms,4,12,42.0,36.8
+ttft_avg_ms,8,9,62.1,22.0
+itl_avg_ms,1,8,29.0,9.6
+itl_avg_ms,2,10,161.4,34.0
+itl_avg_ms,4,12,64.1,21.0
+itl_avg_ms,8,9,34.9,24.8
+power_w,1,8,11.2,0.7
+power_w,2,10,90.0,1.6
+power_w,4,12,204.1,1.4
+power_w,8,9,330.7,0.9
